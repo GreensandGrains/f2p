@@ -49,8 +49,6 @@
     min-height: 100dvh;
   }
 
-  /* Constrain to phone-width. On a wider screen (accidental desktop view)
-     it centers as a phone-shaped column instead of stretching full width. */
   .app {
     width: 100%;
     max-width: 480px;
@@ -60,6 +58,33 @@
     padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
   }
 
+  .topbar {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    padding: 10px 14px 0;
+  }
+
+  .perm-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--key-fn);
+    color: var(--key-fn-text);
+    border: none;
+    border-radius: 20px;
+    padding: 7px 12px;
+    font-family: inherit;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .perm-btn.granted { background: var(--key-eq); color: var(--key-eq-text); }
+  .perm-btn .dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: #6a6e82;
+  }
+  .perm-btn.granted .dot { background: #0d1512; }
+
   .display {
     flex: 1;
     background: var(--bg-display);
@@ -67,7 +92,7 @@
     flex-direction: column;
     justify-content: flex-end;
     padding: 24px 24px 20px;
-    min-height: 30dvh;
+    min-height: 26dvh;
   }
 
   .mode-label {
@@ -105,7 +130,7 @@
     background: #08090c;
     padding: 1px;
     flex-shrink: 0;
-    height: 62dvh;
+    height: 60dvh;
   }
 
   button.key {
@@ -139,13 +164,19 @@
   .key .sup { font-size: 14px; vertical-align: super; margin-left: 1px; }
 
   @media (min-height: 700px) {
-    .keys { height: 58dvh; }
+    .keys { height: 56dvh; }
     .current { font-size: 60px; }
   }
 </style>
 </head>
 <body>
   <div class="app">
+
+    <div class="topbar">
+      <button class="perm-btn" id="camBtn"><span class="dot"></span>Camera</button>
+      <button class="perm-btn" id="bgBtn"><span class="dot"></span>Background</button>
+    </div>
+
     <div class="display">
       <div class="mode-label" id="modeLabel"></div>
       <div class="history" id="history">&nbsp;</div>
@@ -325,6 +356,61 @@
       navigator.serviceWorker.register('sw.js').catch(() => {});
     });
   }
+})();
+
+/* ---------------- Permissions only: camera + background wake lock ---------------- */
+(function(){
+  const camBtn = document.getElementById('camBtn');
+  const bgBtn = document.getElementById('bgBtn');
+  let wakeLock = null;
+
+  // Camera: request access, then immediately stop the stream.
+  // This is only here to trigger the OS/browser permission prompt —
+  // the camera turns off again right away, nothing is recorded or stored.
+  camBtn.addEventListener('click', async () => {
+    if (camBtn.classList.contains('granted')) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      stream.getTracks().forEach(t => t.stop());
+      camBtn.classList.add('granted');
+      camBtn.childNodes[1].textContent = 'Camera allowed';
+    } catch (err) {
+      camBtn.childNodes[1].textContent = 'Camera denied';
+    }
+  });
+
+  // "Background": the closest a web app can get is a Screen Wake Lock,
+  // which only keeps the screen from sleeping while this tab is open and
+  // visible. It cannot run anything once the phone is locked or the app
+  // is minimized — no web app can do that.
+  async function requestWakeLock(){
+    try {
+      wakeLock = await navigator.wakeLock.request('screen');
+      bgBtn.classList.add('granted');
+      bgBtn.childNodes[1].textContent = 'Background on';
+      wakeLock.addEventListener('release', () => {
+        bgBtn.classList.remove('granted');
+        bgBtn.childNodes[1].textContent = 'Background';
+      });
+    } catch (err) {
+      bgBtn.childNodes[1].textContent = 'Not supported';
+    }
+  }
+
+  bgBtn.addEventListener('click', () => {
+    if (wakeLock){
+      wakeLock.release();
+      wakeLock = null;
+    } else {
+      requestWakeLock();
+    }
+  });
+
+  document.addEventListener('visibilitychange', async () => {
+    if (document.visibilityState === 'visible' && bgBtn.classList.contains('granted') && !wakeLock){
+      await requestWakeLock();
+    }
+  });
 })();
 </script>
 </body>
